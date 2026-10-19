@@ -13,7 +13,7 @@ The thermostats are ordinary Zigbee devices, but they only finish pairing when t
 | Off/on, heat and cool mode, setpoint, keypad lock | Works. `current_heating_setpoint` is the setpoint of the mode, so the cooling setpoint in cool mode |
 | Presets: schedule, permanent hold, away | Works |
 | Settings: frost setpoint, temperature offset, heat control algorithm, display resolution | Works |
-| Settings: minimum and maximum heating setpoint | Written like the four above, with limits checked. The bytes are proven; these writes have not been tried on a thermostat yet |
+| Settings: minimum and maximum heating setpoint | Works for the maximum (35 to 24 and 25 on seven thermostats, read back, the other settings unchanged). The minimum is written the same way and has not been tried on a thermostat yet |
 | Firmware update over zigbee2mqtt | Works (0x50 to 0x54, about 1.5 h) |
 | Wiring centre (KL08RF / it600WC) on zigbee2mqtt: joining, zone table, zone pairing, relays following the thermostats | Works. A wiring centre with six thermostats over seven zones runs without the Salus gateway, see [docs/wiring-centre.md](docs/wiring-centre.md). One wiring centre per network |
 | Wiring centre firmware update over zigbee2mqtt | The index match works: zigbee2mqtt matches the wiring centre to the zigbee-OTA image SAL6DW1_20230222, the version it already runs. A transfer is untested, as no newer image exists yet |

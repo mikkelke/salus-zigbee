@@ -58,7 +58,7 @@ The thermostat is a battery powered sleepy end device. A write waits until it ne
 The firmware images are standard Zigbee OTA files (manufacturer 0x1078, image type 0x7A). An update from 0x50 to 0x54 took about 1.5 h. If the image you want is not in the OTA index yet, add it to a [local OTA index](../guide/usage/ota_updates.md#using-custom-firmware-files-or-index).
 
 ### Temperature resolution
-A factory new thermostat reports the temperature in 0.5 °C steps, the resolution of its display. The thermostat can be set to 0.1 °C. `display_resolution` shows which one is set and sets it, 0.5 or 0.1. It is an admin setting, written with the same B11 as `heat_control`. `min_heat_setpoint` and `max_heat_setpoint` are written the same way; the bytes are proven, but those two writes have not been tried on a thermostat yet.
+A factory new thermostat reports the temperature in 0.5 °C steps, the resolution of its display. The thermostat can be set to 0.1 °C. `display_resolution` shows which one is set and sets it, 0.5 or 0.1. It is an admin setting, written with the same B11 as `heat_control`. `min_heat_setpoint` and `max_heat_setpoint` are written the same way. `max_heat_setpoint` has been written on real thermostats; `min_heat_setpoint` has not been tried yet.
 <!-- Notes END: Do not edit below this line -->
 
 
