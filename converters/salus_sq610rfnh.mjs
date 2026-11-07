@@ -77,14 +77,27 @@ const SETTINGS_WRITE = { user: 0x72, admin: 0x73 };
 const SETTINGS = {
     counter: 1,
     temperatureOffset: 3,
+    displayHumidity: 5,
     frostSetpoint: 6,
+    temperatureScale: 10,
     displayResolution: 11,
     heatControl: 12,
+    sensorType: 15,
+    maxFloorTemp: 16,
+    minFloorTemp: 18,
     maxHeatSetpoint: 22,
     minHeatSetpoint: 24,
     maxCoolSetpoint: 26,
     minCoolSetpoint: 28,
+    valveProtection: 30,
+    internalRelay: 31,
+    relayType: 32,
+    minOffTimeHeating: 33,
+    optimumStart: 37,
+    optimumStop: 38,
+    comfortWarmFloor: 39,
     pin: 40,
+    displayFloorTemp: 45,
 };
 // The setpoint of each system mode: the command that sets it (the thermostat ignores B34 outside heat and B33 outside cool), the bytes of
 // a 0x72 that hold the limits it accepts, and the limits to use until one has been seen.
@@ -96,6 +109,35 @@ const HEAT_CONTROL = { 0: "itlc_ufh", 1: "itlc_rad", 2: "itlc_elect", 3: "span_0
 const HEAT_CONTROL_SET = Object.fromEntries(Object.entries(HEAT_CONTROL).map(([code, name]) => [name, Number(code)]));
 const DISPLAY_RESOLUTIONS = { 0: 0.5, 1: 0.1 };
 const DISPLAY_RESOLUTION_SET = Object.fromEntries(Object.entries(DISPLAY_RESOLUTIONS).map(([code, step]) => [step, Number(code)]));
+const SENSOR_TYPES = {
+    0: "none",
+    1: "floor_sensor",
+    2: "external_sensor",
+    3: "occupancy_sensor",
+    4: "one_touch",
+    5: "changeover",
+};
+const SENSOR_TYPE_SET = Object.fromEntries(Object.entries(SENSOR_TYPES).map(([code, name]) => [name, Number(code)]));
+const INTERNAL_RELAYS = {
+    0: "disabled",
+    1: "heat_and_cool",
+    2: "heat_only",
+    3: "cool_only",
+};
+const INTERNAL_RELAY_SET = Object.fromEntries(Object.entries(INTERNAL_RELAYS).map(([code, name]) => [name, Number(code)]));
+const RELAY_TYPES = {
+    0: "NO",
+    1: "NC",
+};
+const RELAY_TYPE_SET = Object.fromEntries(Object.entries(RELAY_TYPES).map(([code, name]) => [name, Number(code)]));
+const COMFORT_WARM_FLOOR = {
+    0: "disabled",
+    1: "level_1",
+    2: "level_2",
+    3: "level_3",
+};
+const COMFORT_WARM_FLOOR_SET = Object.fromEntries(Object.entries(COMFORT_WARM_FLOOR).map(([code, name]) => [name, Number(code)]));
+
 // Bytes 40-41 hold the PIN scrambled with the report counter in byte 1; 0xFFFF means no PIN.
 // The counter and PIN bytes below decode to no PIN.
 const NO_PIN = 0xffff;
@@ -386,6 +428,14 @@ const requestZoneTableAfterJoin = (endpoint) =>
 
 const onWiringCentreJoin = onJoin(WIRING_CENTRE_ENDPOINT, requestZoneTableAfterJoin);
 
+const requestSettingsAfterJoin = (endpoint) =>
+    requestSettings(endpoint).catch((error) => logger.warning(`Settings request to ${endpoint.deviceIeeeAddress} failed (${error.message})`, NS));
+
+const onThermostatJoin = onJoin(THERMOSTAT_ENDPOINT, requestSettingsAfterJoin);
+
+const onThermostatEvent = onThermostatJoin;
+
+
 // zigbee2mqtt sends start for every device when it starts, and the wiring centre keeps its number across that, so it is known again at once.
 const onWiringCentreEvent = async (event) => {
     if (event.type === "start") {
@@ -468,6 +518,14 @@ function parseSettingsRecord(record, ieeeAddr) {
         min_cool_setpoint: bcdCelsius(record, SETTINGS.minCoolSetpoint),
         max_cool_setpoint: bcdCelsius(record, SETTINGS.maxCoolSetpoint),
         display_resolution: DISPLAY_RESOLUTIONS[record[SETTINGS.displayResolution]],
+        sensor_type: SENSOR_TYPES[record[SETTINGS.sensorType]],
+        valve_protection: Boolean(record[SETTINGS.valveProtection]),
+        internal_relay: INTERNAL_RELAYS[record[SETTINGS.internalRelay]],
+        relay_type: RELAY_TYPES[record[SETTINGS.relayType]],
+        optimum_start: Boolean(record[SETTINGS.optimumStart]),
+        optimum_stop: Boolean(record[SETTINGS.optimumStop]),
+        comfort_warm_floor: COMFORT_WARM_FLOOR[record[SETTINGS.comfortWarmFloor]],
+        display_humidity: Boolean(record[SETTINGS.displayHumidity]),
     });
 }
 
@@ -501,6 +559,7 @@ const fzLocal = {
         type: "commandSyncRequest",
         convert: async (model, msg) => {
             await sendSyncResponse(msg.endpoint);
+            void requestSettings(msg.endpoint).catch((error) => logger.warning(`Settings request after sync to ${msg.endpoint.deviceIeeeAddress} failed (${error.message})`, NS));
         },
     },
     record: {
@@ -852,12 +911,20 @@ const tzLocal = {
             const setpoint = halfDegrees(value, key, FROST_MIN, FROST_MAX);
             await writeSettings(entity, SETTINGS_WRITE.user, (record) => record.set(bcdBytes(setpoint), SETTINGS.frostSetpoint));
         },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
     },
     temperature_offset: {
         key: ["temperature_offset"],
         convertSet: async (entity, key, value) => {
             const offset = halfDegrees(value, key, OFFSET_MIN, OFFSET_MAX);
             await writeSettings(entity, SETTINGS_WRITE.user, (record) => record.set(signedBcdBytes(offset), SETTINGS.temperatureOffset));
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
         },
     },
     heat_control: {
@@ -869,6 +936,10 @@ const tzLocal = {
             await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
                 record[SETTINGS.heatControl] = HEAT_CONTROL_SET[value];
             });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
         },
     },
     wiring_centre_zones: {
@@ -890,6 +961,10 @@ const tzLocal = {
                 record.set(bcdBytes(setpoint), SETTINGS.minHeatSetpoint);
             });
         },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
     },
     max_heat_setpoint: {
         key: ["max_heat_setpoint"],
@@ -903,6 +978,10 @@ const tzLocal = {
                 record.set(bcdBytes(setpoint), SETTINGS.maxHeatSetpoint);
             });
         },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
     },
     display_resolution: {
         key: ["display_resolution"],
@@ -914,6 +993,129 @@ const tzLocal = {
             await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
                 record[SETTINGS.displayResolution] = DISPLAY_RESOLUTION_SET[resolution];
             });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    valve_protection: {
+        key: ["valve_protection"],
+        convertSet: async (entity, key, value) => {
+            const flag = Boolean(value) ? 1 : 0;
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.valveProtection] = flag;
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    sensor_type: {
+        key: ["sensor_type"],
+        convertSet: async (entity, key, value) => {
+            if (!Object.hasOwn(SENSOR_TYPE_SET, value)) {
+                throw new Error(`${key} must be one of ${Object.keys(SENSOR_TYPE_SET).join(", ")}, got ${value}`);
+            }
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.sensorType] = SENSOR_TYPE_SET[value];
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    internal_relay: {
+        key: ["internal_relay"],
+        convertSet: async (entity, key, value) => {
+            if (!Object.hasOwn(INTERNAL_RELAY_SET, value)) {
+                throw new Error(`${key} must be one of ${Object.keys(INTERNAL_RELAY_SET).join(", ")}, got ${value}`);
+            }
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.internalRelay] = INTERNAL_RELAY_SET[value];
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    relay_type: {
+        key: ["relay_type"],
+        convertSet: async (entity, key, value) => {
+            if (!Object.hasOwn(RELAY_TYPE_SET, value)) {
+                throw new Error(`${key} must be one of ${Object.keys(RELAY_TYPE_SET).join(", ")}, got ${value}`);
+            }
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.relayType] = RELAY_TYPE_SET[value];
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    comfort_warm_floor: {
+        key: ["comfort_warm_floor"],
+        convertSet: async (entity, key, value) => {
+            if (!Object.hasOwn(COMFORT_WARM_FLOOR_SET, value)) {
+                throw new Error(`${key} must be one of ${Object.keys(COMFORT_WARM_FLOOR_SET).join(", ")}, got ${value}`);
+            }
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.comfortWarmFloor] = COMFORT_WARM_FLOOR_SET[value];
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    optimum_start: {
+        key: ["optimum_start"],
+        convertSet: async (entity, key, value) => {
+            const flag = Boolean(value) ? 1 : 0;
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.optimumStart] = flag;
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    optimum_stop: {
+        key: ["optimum_stop"],
+        convertSet: async (entity, key, value) => {
+            const flag = Boolean(value) ? 1 : 0;
+            await writeSettings(entity, SETTINGS_WRITE.admin, (record) => {
+                record[SETTINGS.optimumStop] = flag;
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    display_humidity: {
+        key: ["display_humidity"],
+        convertSet: async (entity, key, value) => {
+            const flag = Boolean(value) ? 1 : 0;
+            await writeSettings(entity, SETTINGS_WRITE.user, (record) => {
+                record[SETTINGS.displayHumidity] = flag;
+            });
+        },
+        convertGet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
+        },
+    },
+    refresh_settings: {
+        key: ["refresh_settings"],
+        convertSet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await requestSettings(entity);
         },
     },
     // A get on any zone asks for the whole table.
@@ -976,8 +1178,18 @@ const thermostat = {
         tzLocal.min_heat_setpoint,
         tzLocal.max_heat_setpoint,
         tzLocal.display_resolution,
+        tzLocal.sensor_type,
+        tzLocal.valve_protection,
+        tzLocal.internal_relay,
+        tzLocal.relay_type,
+        tzLocal.optimum_start,
+        tzLocal.optimum_stop,
+        tzLocal.comfort_warm_floor,
+        tzLocal.display_humidity,
+        tzLocal.refresh_settings,
         tzLocal.wiring_centre_zones,
         tzLocal.salus_command,
+        tzLocal.salus_frame,
     ],
     exposes: [
         e
@@ -995,31 +1207,31 @@ const thermostat = {
         e.numeric("schedule_setpoint", ea.STATE).withUnit("°C").withDescription("Heating setpoint the thermostat's schedule asks for now"),
         e.child_lock(),
         e
-            .numeric("frost_setpoint", ea.STATE_SET)
+            .numeric("frost_setpoint", ea.ALL)
             .withUnit("°C")
             .withValueMin(FROST_MIN)
             .withValueMax(FROST_MAX)
             .withValueStep(0.5)
             .withDescription("Setpoint the thermostat holds while it is off (standby heating)"),
         e
-            .numeric("temperature_offset", ea.STATE_SET)
+            .numeric("temperature_offset", ea.ALL)
             .withUnit("°C")
             .withValueMin(OFFSET_MIN)
             .withValueMax(OFFSET_MAX)
             .withValueStep(0.5)
             .withDescription("Room temperature calibration"),
-        new exposes.Enum("heat_control", ea.STATE_SET, Object.values(HEAT_CONTROL)).withDescription(
+        new exposes.Enum("heat_control", ea.ALL, Object.values(HEAT_CONTROL)).withDescription(
             "Heat control algorithm (admin setting): ITLC for underfloor, radiator or electric heating, a ±0.25 or ±0.5 °C span, or THB actuators. itlc_ufh is the factory value",
         ),
         e
-            .numeric("min_heat_setpoint", ea.STATE_SET)
+            .numeric("min_heat_setpoint", ea.ALL)
             .withUnit("°C")
             .withValueMin(SETPOINT_MIN)
             .withValueMax(SETPOINT_MAX - HEAT_LIMIT_GAP)
             .withValueStep(0.5)
             .withDescription("Lowest heating setpoint the thermostat accepts (admin setting), at least 0.5 below the highest"),
         e
-            .numeric("max_heat_setpoint", ea.STATE_SET)
+            .numeric("max_heat_setpoint", ea.ALL)
             .withUnit("°C")
             .withValueMin(SETPOINT_MIN + HEAT_LIMIT_GAP)
             .withValueMax(SETPOINT_MAX)
@@ -1028,12 +1240,36 @@ const thermostat = {
         e.numeric("min_cool_setpoint", ea.STATE).withUnit("°C").withDescription("Lowest cooling setpoint the thermostat accepts"),
         e.numeric("max_cool_setpoint", ea.STATE).withUnit("°C").withDescription("Highest cooling setpoint the thermostat accepts"),
         e
-            .numeric("display_resolution", ea.STATE_SET)
+            .numeric("display_resolution", ea.ALL)
             .withUnit("°C")
             .withValueMin(0.1)
             .withValueMax(0.5)
             .withValueStep(0.4)
             .withDescription("Temperature step shown on the display (admin setting): 0.5 or 0.1"),
+        new exposes.Enum("sensor_type", ea.ALL, Object.values(SENSOR_TYPES)).withDescription(
+            "S1/S2 external terminal function: none, floor sensor, external air sensor, occupancy, one touch, or changeover",
+        ),
+        e.binary("valve_protection", ea.ALL, true, false).withDescription(
+            "Periodically opens actuators to prevent valve sticking",
+        ),
+        new exposes.Enum("internal_relay", ea.ALL, Object.values(INTERNAL_RELAYS)).withDescription(
+            "Onboard 230V relay operation: disabled, heat and cool, heat only, or cool only",
+        ),
+        new exposes.Enum("relay_type", ea.ALL, Object.values(RELAY_TYPES)).withDescription(
+            "Internal relay contact type: NO (normally open) or NC (normally closed)",
+        ),
+        e.binary("optimum_start", ea.ALL, true, false).withDescription(
+            "Pre-heats room based on thermal response to reach setpoint exactly at schedule time",
+        ),
+        e.binary("optimum_stop", ea.ALL, true, false).withDescription(
+            "Stops heating early before scheduled end time using residual floor heat",
+        ),
+        new exposes.Enum("comfort_warm_floor", ea.ALL, Object.values(COMFORT_WARM_FLOOR)).withDescription(
+            "Keeps floor warm even when room temperature setpoint is satisfied",
+        ),
+        e.binary("display_humidity", ea.ALL, true, false).withDescription(
+            "Show relative humidity percentage on the thermostat LCD screen",
+        ),
         e
             .text("wiring_centre_zones", ea.SET)
             .withDescription(
@@ -1044,7 +1280,7 @@ const thermostat = {
     ],
     ota: true,
     endpoint: () => ({ default: THERMOSTAT_ENDPOINT }),
-    onEvent: onJoin(THERMOSTAT_ENDPOINT),
+    onEvent: onThermostatEvent,
 };
 
 const wiringCentre = {
@@ -1085,4 +1321,12 @@ const wiringCentre = {
     onEvent: onWiringCentreEvent,
 };
 
-export default [thermostat, wiringCentre];
+const thermostatWired = {
+    ...thermostat,
+    zigbeeModel: ["SQ610NH"],
+    model: "SQ610NH",
+    description: "Quantum hardwired thermostat (iT600)",
+};
+
+export default [thermostat, thermostatWired, wiringCentre];
+
