@@ -476,7 +476,7 @@ function signedBcdBytes(celsius) {
 // Codes outside the known tables are left unpublished.
 const published = (fields) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
 
-function parseStatusRecord(record, ieeeAddr) {
+function parseStatusRecord(record, ieeeAddr, device) {
     if (record.length < STATUS_MIN_LENGTH) {
         logger.debug(`Ignoring short status record (${record.length} bytes) from ${ieeeAddr}`, NS);
         return;
@@ -484,7 +484,7 @@ function parseStatusRecord(record, ieeeAddr) {
     systemModeBytes.set(ieeeAddr, record[STATUS.systemMode]);
     const holdType = record[STATUS.holdType];
     const placeholder = record.readUInt16BE(STATUS.temperature) === STATUS_PLACEHOLDER_TEMPERATURE;
-    return published({
+    const result = {
         local_temperature: placeholder ? undefined : bcdCelsius(record, STATUS.temperature),
         // Bytes 9-10 are the setpoint of the system mode the thermostat is in, heating or cooling; the other one is stored separately and
         // not in the record. It is named as the heating setpoint because zigbee2mqtt's Home Assistant discovery only keeps a single
@@ -497,8 +497,11 @@ function parseStatusRecord(record, ieeeAddr) {
         running_state: RUNNING_STATES[record[STATUS.runningState]],
         child_lock: { 0: "UNLOCK", 1: "LOCK" }[record[STATUS.keypadLock]],
         humidity: bcd(record[STATUS.humidity]),
-        battery: BATTERY_PERCENT[record[STATUS.battery]],
-    });
+    };
+    if (device?.modelID !== "SQ610NH") {
+        result.battery = BATTERY_PERCENT[record[STATUS.battery]];
+    }
+    return published(result);
 }
 
 function parseSettingsRecord(record, ieeeAddr) {
@@ -573,7 +576,7 @@ const fzLocal = {
                 logger.debug(`Ignoring record 0x${type} (${record.length} bytes) from ${msg.device.ieeeAddr}`, NS);
                 return;
             }
-            return parse(record, msg.device.ieeeAddr);
+            return parse(record, msg.device.ieeeAddr, msg.device);
         },
     },
     clock_sync: {
@@ -1196,7 +1199,7 @@ const thermostat = {
             .climate()
             .withSetpoint("current_heating_setpoint", SETPOINT_MIN, SETPOINT_MAX, 0.5, ea.STATE_SET)
             .withLocalTemperature(ea.STATE)
-            .withSystemMode(["off", "heat", "cool"], ea.STATE_SET)
+            .withSystemMode(["off", "heat"], ea.STATE_SET)
             .withRunningState(["idle", "heat"], ea.STATE)
             .withPreset(Object.keys(HOLD_TYPE_SET), "Settable hold type; a temporary hold (setpoint changed during the schedule) shows as schedule"),
         e.humidity(),
@@ -1237,8 +1240,6 @@ const thermostat = {
             .withValueMax(SETPOINT_MAX)
             .withValueStep(0.5)
             .withDescription("Highest heating setpoint the thermostat accepts (admin setting), at least 0.5 above the lowest"),
-        e.numeric("min_cool_setpoint", ea.STATE).withUnit("°C").withDescription("Lowest cooling setpoint the thermostat accepts"),
-        e.numeric("max_cool_setpoint", ea.STATE).withUnit("°C").withDescription("Highest cooling setpoint the thermostat accepts"),
         e
             .numeric("display_resolution", ea.ALL)
             .withUnit("°C")
@@ -1326,6 +1327,7 @@ const thermostatWired = {
     zigbeeModel: ["SQ610NH"],
     model: "SQ610NH",
     description: "Quantum hardwired thermostat (iT600)",
+    exposes: thermostat.exposes.filter((exp) => exp.name !== "battery"),
 };
 
 export default [thermostat, thermostatWired, wiringCentre];
