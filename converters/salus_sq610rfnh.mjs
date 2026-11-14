@@ -339,6 +339,7 @@ async function sendSyncResponse(endpoint) {
         wiringCentres.set(WIRING_CENTRE_NUMBER, endpoint);
     }
     try {
+        logger.info(`Sending clock sync response to ${endpoint.deviceIeeeAddress}`, NS);
         await send(endpoint, "syncResponse", syncResponsePayload(now, endpoint.ID));
     } catch (error) {
         lastSync.delete(endpoint.deviceIeeeAddress);
@@ -570,6 +571,9 @@ const fzLocal = {
         type: "commandRecord",
         convert: (model, msg) => {
             const record = msg.data.payload;
+            if (record[0] === RECORD_STATUS) {
+                resyncClock(msg.endpoint);
+            }
             const parse = RECORD_PARSERS[record[0]];
             if (!parse) {
                 const type = record.subarray(0, 1).toString("hex");
@@ -1118,7 +1122,15 @@ const tzLocal = {
         key: ["refresh_settings"],
         convertSet: async (entity) => {
             utils.assertEndpoint(entity);
+            await sendSyncResponse(entity);
             await requestSettings(entity);
+        },
+    },
+    sync_clock: {
+        key: ["sync_clock"],
+        convertSet: async (entity) => {
+            utils.assertEndpoint(entity);
+            await sendSyncResponse(entity);
         },
     },
     // A get on any zone asks for the whole table.
@@ -1190,6 +1202,7 @@ const thermostat = {
         tzLocal.comfort_warm_floor,
         tzLocal.display_humidity,
         tzLocal.refresh_settings,
+        tzLocal.sync_clock,
         tzLocal.wiring_centre_zones,
         tzLocal.salus_command,
         tzLocal.salus_frame,
