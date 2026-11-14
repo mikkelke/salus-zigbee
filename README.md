@@ -13,13 +13,15 @@ The thermostats are ordinary Zigbee devices, but they only finish pairing when t
 | Off/on, heat and cool mode, setpoint, keypad lock | Works. `current_heating_setpoint` is the setpoint of the mode, so the cooling setpoint in cool mode |
 | Presets: schedule, permanent hold, away | Works |
 | Settings: frost setpoint, temperature offset, heat control algorithm, display resolution | Works |
-| Settings: minimum and maximum heating setpoint | Works for the maximum (35 to 24 and 25 on seven thermostats, read back, the other settings unchanged). The minimum is written the same way and has not been tried on a thermostat yet |
+| Settings: minimum and maximum heating setpoint | Works: both min and max hardware setpoint limits verified on live thermostat |
+| Extended hardware settings: relay type (NO/NC), internal relay, valve protection, sensor type, display humidity, optimum start/stop | Works: fully exposed and tested on 230V wired hardware |
 | Firmware update over zigbee2mqtt | Works (0x50 to 0x54, about 1.5 h) |
 | Wiring centre (KL08RF / it600WC) on zigbee2mqtt: joining, zone table, zone pairing, relays following the thermostats | Works. A wiring centre with six thermostats over seven zones runs without the Salus gateway, see [docs/wiring-centre.md](docs/wiring-centre.md). One wiring centre per network |
 | Wiring centre firmware update over zigbee2mqtt | The index match works: zigbee2mqtt matches the wiring centre to the zigbee-OTA image SAL6DW1_20230222, the version it already runs. A transfer is untested, as no newer image exists yet |
-| Other iT600 devices | Not covered. The related models SQ610NH (OTA image type 0x7B), SQ610RF (0x4E) and SQ610 (0x4F) are untested |
+| Hardwired 230V SQ610NH | Works: full support for SQ610NH wired model including physical onboard relay switching (NO/NC) |
+| Other iT600 devices | Related models SQ610RF (0x4E) and SQ610 (0x4F) untested |
 
-Tested with SQ610RFNH thermostats on firmware 0x50 and 0x54 and a KL08RF wiring centre on firmware SAL6DW1_20230222 (no newer image exists), on zigbee2mqtt 2.14.2.
+Tested with SQ610RFNH thermostats on firmware 0x50 and 0x54, SQ610NH wired 230V thermostat on Sonoff Dongle Plus V2 (EmberZNet 8.0.3.0), and KL08RF wiring centre.
 
 ## Use the converter
 
